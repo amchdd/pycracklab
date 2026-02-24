@@ -72,9 +72,9 @@ pip install -r requirements.txt
 
 ### Via Docker
 
+Build da imagem (no diretório do projeto):
 ```bash
 docker build -t pycracklab .
-docker run -it pycracklab benchmark --password test123
 ```
 
 ---
