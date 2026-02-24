@@ -13,11 +13,16 @@ WORKDIR /app
 
 # Dependências do sistema
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     gcc \
+    libffi-dev \
+    libssl-dev \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Instala dependências Python
 COPY requirements.txt .
+RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copia código
