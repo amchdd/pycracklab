@@ -1,0 +1,15 @@
+# PyCrackLab — Dependencies
+# Python 3.10+
+
+# CLI e output
+rich>=13.7.0
+
+# Hashing seguro de senhas
+bcrypt>=4.1.0
+
+# Testes
+pytest>=8.0.0
+pytest-cov>=5.0.0
+
+# Opcional: análise de CPU durante benchmark
+psutil>=5.9.0

@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Logs
+*.log
+pycracklab.log
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Wordlists grandes (não versionar rockyou, etc.)
+wordlists/rockyou*.txt
+wordlists/*.gz
+wordlists/*.zip
+!wordlists/common.txt
+!wordlists/README.md
+
+# Docker
+.dockerignore
+
+# Outros
+.env
+*.bak
