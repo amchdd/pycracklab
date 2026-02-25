@@ -61,11 +61,21 @@ CHARSETS: dict[str, str] = {
 }
 
 
-def get_charset(name: str, custom: Optional[str] = None) -> str:
-    """Retorna o charset a ser usado, priorizando custom se fornecido."""
-    if custom:
-        seen: set[str] = set()
-        return "".join(c for c in custom if not (c in seen or seen.add(c)))  # type: ignore[func-returns-value]
+def get_charset(name: str, custom: Optional[str] = None, custom_charset: Optional[str] = None) -> str:
+    """
+    Retorna o charset a ser usado.
+
+    Compatibilidade:
+      - aceita tanto `custom` (antigo) quanto `custom_charset` (usado pelos testes/CLI).
+      - se ambos forem passados, `custom_charset` tem precedência.
+      - remove duplicados preservando a ordem.
+    """
+    chosen = custom_charset if custom_charset is not None else custom
+
+    if chosen:
+        # remove duplicados preservando ordem (dict.fromkeys preserva ordem desde Python 3.7)
+        return "".join(dict.fromkeys(chosen))
+
     return CHARSETS.get(name, CHARSETS["lowercase"])
 
 
