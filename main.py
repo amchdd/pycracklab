@@ -33,7 +33,7 @@ def show_banner() -> None:
     banner.append("  ██╔═══╝   ╚██╔╝  ██║     ██╔══██╗██╔══██║██║     ██╔═██╗ \n", style="bold yellow")
     banner.append("  ██║        ██║   ╚██████╗██║  ██║██║  ██║╚██████╗██║  ██╗\n", style="bold green")
     banner.append("  ╚═╝        ╚═╝    ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝\n", style="bold green")
-    banner.append("              LAB  —  Educational Password Cracker v1.0\n", style="dim")
+    banner.append("              LAB  —  Educational Password Cracker v1.1\n", style="dim")
 
     console.print(Panel(banner, border_style="bold blue"))
 
@@ -53,32 +53,34 @@ def show_banner() -> None:
 # ─────────────────────────────────────────────
 
 def build_parser() -> argparse.ArgumentParser:
-    """Constrói o parser CLI principal."""
     parser = argparse.ArgumentParser(
         prog="pycracklab",
         description="PyCrackLab — Educational Password Cracking Tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Exemplos de uso:
-  # Brute force simples
-  python main.py brute --target abc --charset lowercase --min-len 1 --max-len 4
+  # Brute force single-thread
+  python main.py brute --target abc --charset lowercase --max-len 4
 
-  # Wordlist attack em hash MD5
-  python main.py wordlist --hash 5d41402abc4b2a76b9719d911017c592 --wordlist wordlists/common.txt
+  # Brute force com multiprocessing (contorna GIL)
+  python main.py brute --target abc --charset lowercase --max-len 4 --mode process --workers 4
+
+  # Wordlist attack single
+  python main.py wordlist --hash 5f4dcc3b5aa765d61d8327deb882cf99 --wordlist wordlists/common.txt
+
+  # Wordlist attack com multiprocessing
+  python main.py wordlist --hash 5f4dcc3b5aa765d61d8327deb882cf99 --wordlist wordlists/common.txt --workers 4
 
   # Hash cracking automático
   python main.py hash --hash "$2b$12$..." --wordlist wordlists/rockyou_small.txt
 
   # Benchmark comparativo
   python main.py benchmark --password "test123"
-
-  # Com logging habilitado
-  python main.py brute --target abc --log
         """,
     )
 
     parser.add_argument("--log", action="store_true", help="Habilita logging detalhado")
-    parser.add_argument("--log-file", default="pycracklab.log", help="Arquivo de log (default: pycracklab.log)")
+    parser.add_argument("--log-file", default="pycracklab.log", help="Arquivo de log")
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -94,13 +96,33 @@ Exemplos de uso:
     brute_parser.add_argument("--custom-charset", help="Charset personalizado (ex: 'abc123')")
     brute_parser.add_argument("--min-len", type=int, default=1, help="Comprimento mínimo (default: 1)")
     brute_parser.add_argument("--max-len", type=int, default=6, help="Comprimento máximo (default: 6)")
-    brute_parser.add_argument("--threads", type=int, default=1, help="Número de threads (default: 1)")
+    brute_parser.add_argument("--threads", type=int, default=1, help="Número de threads/workers (default: 1)")
+    brute_parser.add_argument(
+        "--mode",
+        choices=["single", "thread", "process"],
+        default="single",
+        help="Modo de execução: single (default), thread (multi-thread), process (multiprocessing, contorna GIL)",
+    )
+    # Alias --workers para --threads (mais intuitivo com --mode process)
+    brute_parser.add_argument("--workers", type=int, dest="threads", help="Alias para --threads")
 
     # ── Wordlist ─────────────────────────────
     wl_parser = subparsers.add_parser("wordlist", help="Ataque por wordlist")
     wl_parser.add_argument("--hash", required=True, dest="hash_value", help="Hash alvo")
     wl_parser.add_argument("--wordlist", required=True, help="Caminho para wordlist")
     wl_parser.add_argument("--hash-type", choices=["md5", "sha1", "bcrypt", "auto"], default="auto")
+    wl_parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Workers para multiprocessing (default: 1 = single-thread). Use > 1 para ativar Pool.",
+    )
+    wl_parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=500,
+        help="Palavras por chunk enviado a cada worker (default: 500)",
+    )
 
     # ── Hash Cracker ─────────────────────────
     hash_parser = subparsers.add_parser("hash", help="Hash cracking com detecção automática")
@@ -110,7 +132,7 @@ Exemplos de uso:
     # ── Benchmark ────────────────────────────
     bench_parser = subparsers.add_parser("benchmark", help="Benchmark de performance de hashing")
     bench_parser.add_argument("--password", default="benchmark_test", help="Senha de teste")
-    bench_parser.add_argument("--iterations", type=int, default=100_000, help="Iterações por algoritmo (default: 100000)")
+    bench_parser.add_argument("--iterations", type=int, default=100_000, help="Iterações por algoritmo")
 
     return parser
 
@@ -120,11 +142,9 @@ Exemplos de uso:
 # ─────────────────────────────────────────────
 
 def setup_logging(enabled: bool, log_file: str) -> None:
-    """Configura logging condicional."""
     if not enabled:
         logging.disable(logging.CRITICAL)
         return
-
     logging.basicConfig(
         level=logging.DEBUG,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -148,6 +168,7 @@ def run_brute(args: argparse.Namespace) -> None:
         min_len=args.min_len,
         max_len=args.max_len,
         num_threads=args.threads,
+        mode=args.mode,
     )
     attack.run()
 
@@ -157,6 +178,8 @@ def run_wordlist(args: argparse.Namespace) -> None:
         hash_value=args.hash_value,
         wordlist_path=args.wordlist,
         hash_type=args.hash_type,
+        num_workers=args.workers,
+        chunk_size=args.chunk_size,
     )
     attack.run()
 
