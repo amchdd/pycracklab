@@ -1,0 +1,51 @@
+# ─────────────────────────────────────────────
+# .dockerignore — reduz contexto de build
+# Arquivos listados aqui NÃO são enviados ao daemon do Docker
+# ─────────────────────────────────────────────
+
+# Git
+.git/
+.gitignore
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Ambientes virtuais
+venv/
+.venv/
+env/
+ENV/
+
+# Testes e coverage (não necessários em runtime)
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Logs gerados localmente
+*.log
+
+# Wordlists grandes (montar via volume em vez de copiar no build)
+wordlists/rockyou*.txt
+wordlists/*.gz
+wordlists/*.zip
+
+# CI/CD — não necessário na imagem
+.github/
+
+# Documentação
+README.md
+LICENSE
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Variáveis de ambiente locais
+.env
+*.bak
