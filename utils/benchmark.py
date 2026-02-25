@@ -33,15 +33,13 @@ Impacto na segurança real:
 
 import hashlib
 import logging
-import os
 import time
-from dataclasses import dataclass, field
-from typing import Optional
 
 import bcrypt
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from dataclasses import dataclass
 
 logger = logging.getLogger("pycracklab.benchmark")
 console = Console()
