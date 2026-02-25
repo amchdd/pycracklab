@@ -24,14 +24,12 @@ Arquitetura:
     WordlistAttack.run()     → usa multiprocess se --workers > 1
 """
 
-import hashlib
 import logging
 import multiprocessing
-import os
 import time
 from functools import partial
 from pathlib import Path
-from typing import Callable, Generator, Iterable, Optional
+from typing import Optional, Generator
 
 import bcrypt
 from rich.console import Console

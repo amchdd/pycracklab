@@ -31,7 +31,7 @@ import os
 import string
 import threading
 import time
-from typing import Callable, Generator, Optional
+from typing import Generator, Optional
 
 from rich.console import Console
 from rich.panel import Panel
