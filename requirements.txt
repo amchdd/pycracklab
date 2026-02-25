@@ -1,15 +1,29 @@
-# PyCrackLab — Dependencies
+# PyCrackLab — Pinned Dependencies
 # Python 3.10+
+#
+# Por que fixar versões?
+#   - Reprodutibilidade: mesmo ambiente em qualquer máquina/CI
+#   - Evita quebras por updates automáticos de dependências
+#   - Para atualizar: pip install --upgrade <pkg> e atualize aqui
+#
+# Para gerar um requirements.txt com versões do seu ambiente atual:
+#   pip freeze > requirements.txt
 
-# CLI e output
-rich>=13.7.0
+# ── CLI e output ─────────────────────────────
+rich==13.9.4
 
-# Hashing seguro de senhas
-bcrypt>=4.1.0
+# ── Hashing seguro de senhas ─────────────────
+bcrypt==4.2.1
 
-# Testes
-pytest>=8.0.0
-pytest-cov>=5.0.0
+# ── Testes ───────────────────────────────────
+pytest==8.3.4
+pytest-cov==6.0.0
 
-# Opcional: análise de CPU durante benchmark
-psutil>=5.9.0
+# ── Profiling / Benchmark opcional ───────────
+# pytest-benchmark para microbenchmarks:
+#   pip install pytest-benchmark
+#   pytest tests/ --benchmark-only
+pytest-benchmark==5.1.0
+
+# ── Análise de CPU ────────────────────────────
+psutil==6.1.1
