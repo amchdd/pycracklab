@@ -26,7 +26,6 @@ from cracker.brute import (
     get_charset,
     estimate_combinations,
     candidate_generator,
-    CHARSETS,
     BruteForceAttack,
 )
 from cracker.wordlist import check_candidate, wordlist_generator
