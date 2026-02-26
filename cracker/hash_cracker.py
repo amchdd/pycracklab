@@ -34,6 +34,7 @@ console = Console()
 # ─────────────────────────────────────────────
 
 _HASH_PATTERNS: dict[str, re.Pattern[str]] = {
+    "argon2": re.compile(r"^\$argon2(id|i|d)\$v=\d+\$m=\d+,t=\d+,p=\d+\$.+\$.+$"),
     "md5":    re.compile(r"^[a-fA-F0-9]{32}$"),
     "sha1":   re.compile(r"^[a-fA-F0-9]{40}$"),
     "sha256": re.compile(r"^[a-fA-F0-9]{64}$"),
@@ -78,7 +79,7 @@ class HashCracker:
         if not detected_type:
             raise ValueError(
                 f"Hash inválido ou tipo não suportado: '{self.hash_value[:40]}'\n"
-                "Formatos suportados: MD5 (32), SHA1 (40), bcrypt ($2b$...)"
+                "Formatos suportados: MD5 (32), SHA1 (40), bcrypt ($2b$...), Argon2 ($argon2id$...)"
             )
 
         self.hash_type = detected_type
@@ -101,12 +102,22 @@ class HashCracker:
         # Exibe explicação do algoritmo detectado
         self._explain_algorithm()
 
-        attack = WordlistAttack(
+        self._attack = WordlistAttack(
             hash_value=self.hash_value,
             wordlist_path=self.wordlist_path,
             hash_type=self.hash_type,
         )
-        return attack.run()
+        result = self._attack.run()
+        return result
+
+    def get_stats(self) -> dict:
+        """Retorna estatísticas da última execução (delega ao WordlistAttack)."""
+        attack = getattr(self, "_attack", None)
+        if attack is None:
+            return {}
+        out = attack.get_stats()
+        out["command"] = "hash"
+        return out
 
     def _explain_algorithm(self) -> None:
         """Exibe contexto educacional sobre o algoritmo detectado."""
@@ -128,6 +139,12 @@ class HashCracker:
                 "Fator de custo adaptável (ex: $12$ → 2^12 = 4096 iterações).\n"
                 "~15-50 hashes/segundo em CPU (vs bilhões do MD5).\n"
                 "Resistente a ataques de GPU por design (memory-hard)."
+            ),
+            "argon2": (
+                "[green]Argon2[/green] — Vencedor do PHC (Password Hashing Competition).\n"
+                "Variante Argon2id recomendada (híbrida: resiste a side-channel e GPU).\n"
+                "Memory-hard e altamente configurável (memória, tempo, paralelismo).\n"
+                "Recomendação atual para novos sistemas."
             ),
             "sha256": (
                 "[yellow]SHA256[/yellow] — 256 bits, parte da família SHA-2.\n"

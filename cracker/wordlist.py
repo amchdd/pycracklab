@@ -29,14 +29,20 @@ import multiprocessing
 import time
 from functools import partial
 from pathlib import Path
-from typing import Optional, Generator
+from typing import Callable, Optional, Generator
 
 import bcrypt
 from rich.console import Console
-from rich.live import Live
 from rich.panel import Panel
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 from rich.table import Table
-from rich.text import Text
 
 from utils.hashing import hash_md5, hash_sha1, detect_hash_type
 
@@ -96,7 +102,7 @@ def count_lines(path: str) -> int:
 def check_candidate(candidate: str, hash_value: str, hash_type: str) -> bool:
     """
     Verifica se o candidato gera o hash alvo.
-    bcrypt usa checkpw (timing-safe + extrai salt do hash automaticamente).
+    bcrypt/argon2 usam verificação timing-safe; salt extraído do próprio hash.
     """
     try:
         if hash_type == "md5":
@@ -105,6 +111,11 @@ def check_candidate(candidate: str, hash_value: str, hash_type: str) -> bool:
             return hash_sha1(candidate) == hash_value.lower()
         elif hash_type == "bcrypt":
             return bcrypt.checkpw(candidate.encode("utf-8"), hash_value.encode("utf-8"))
+        elif hash_type == "argon2":
+            from argon2 import PasswordHasher
+            ph = PasswordHasher()
+            ph.verify(hash_value, candidate.encode("utf-8"))
+            return True
         else:
             logger.warning("Tipo de hash desconhecido: %s", hash_type)
             return False
@@ -138,6 +149,7 @@ def wordlist_multiprocess(
     hash_type: str,
     num_workers: int = 4,
     chunk_size: int = 500,
+    on_chunk_done: Optional[Callable[[int], None]] = None,
 ) -> tuple[Optional[str], int, float]:
     """
     Ataque por wordlist com multiprocessing.Pool.
@@ -145,12 +157,7 @@ def wordlist_multiprocess(
     Lê o arquivo em chunks e distribui para workers paralelos.
     Termina assim que qualquer worker encontrar o match.
 
-    Args:
-        wordlist_path: caminho da wordlist
-        hash_value:    hash alvo
-        hash_type:     "md5", "sha1" ou "bcrypt"
-        num_workers:   número de processos paralelos
-        chunk_size:    palavras por chunk enviado a cada worker
+    on_chunk_done(checked_so_far) é chamado após cada chunk processado (para progresso).
 
     Returns:
         (resultado, tentativas_totais, tempo_segundos)
@@ -167,10 +174,10 @@ def wordlist_multiprocess(
         gen = wordlist_generator(wordlist_path)
         chunks = _chunk_generator(gen, chunk_size)
 
-        # imap_unordered retorna resultados na ordem que ficam prontos
-        # (não necessariamente na ordem de envio) — ideal para early exit
         for chunk_result in pool.imap_unordered(worker_fn, chunks, chunksize=1):
-            total_checked += chunk_size  # estimativa
+            total_checked += chunk_size
+            if on_chunk_done:
+                on_chunk_done(total_checked)
             if chunk_result is not None:
                 result = chunk_result
                 pool.terminate()
@@ -267,52 +274,79 @@ class WordlistAttack:
             return self._run_single()
 
     def _run_multiprocess(self) -> Optional[str]:
-        """Usa wordlist_multiprocess para processamento paralelo."""
+        """Usa wordlist_multiprocess com barra de progresso."""
         console.print(
             f"[bold green]🚀 Iniciando com {self.num_workers} workers paralelos...[/bold green]\n"
         )
 
-        with console.status("[bold green]Processando chunks em paralelo...[/bold green]", spinner="dots"):
+        total_lines = count_lines(self.wordlist_path)
+        total_chunks = max(1, (total_lines + self.chunk_size - 1) // self.chunk_size)
+
+        progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TextColumn("[cyan]{task.fields[speed]}/s"),
+            TimeElapsedColumn(),
+            console=console,
+        )
+
+        with progress:
+            task = progress.add_task("Processando chunks...", total=total_chunks, speed="0")
+            chunks_done = [0]  # list para closure
+
+            def on_chunk(checked: int) -> None:
+                chunks_done[0] += 1
+                speed = int(checked / (time.perf_counter() - getattr(on_chunk, "_t0", time.perf_counter())))
+                progress.update(task, advance=1, speed=f"{speed:,}")
+
+            on_chunk._t0 = time.perf_counter()
+
             result, attempts, elapsed = wordlist_multiprocess(
                 wordlist_path=self.wordlist_path,
                 hash_value=self.hash_value,
                 hash_type=self.hash_type,
                 num_workers=self.num_workers,
                 chunk_size=self.chunk_size,
+                on_chunk_done=on_chunk,
             )
 
         self._show_result(result, attempts, elapsed)
         return result
 
     def _run_single(self) -> Optional[str]:
-        """Processamento single-thread com barra de progresso ao vivo."""
+        """Processamento single-thread com barra de progresso."""
         found: Optional[str] = None
         count = 0
         start_time = time.perf_counter()
-        last_report = start_time
         total_lines = count_lines(self.wordlist_path)
-        status_line = Text()
+
+        progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TextColumn("[cyan]{task.fields[speed]}/s"),
+            TimeElapsedColumn(),
+            console=console,
+        )
 
         try:
-            with Live(status_line, console=console, refresh_per_second=4) as live:
+            with progress:
+                task = progress.add_task("Testando palavras...", total=total_lines or 1, speed="0")
+                last_update = start_time
                 for word in wordlist_generator(self.wordlist_path):
                     count += 1
+                    progress.update(task, advance=1)
                     if check_candidate(word, self.hash_value, self.hash_type):
                         found = word
                         break
                     now = time.perf_counter()
-                    if now - last_report >= 0.25:
-                        elapsed = now - start_time
-                        speed = int(count / elapsed) if elapsed > 0 else 0
-                        pct = (count / total_lines * 100) if total_lines > 0 else 0
-                        status_line = Text.from_markup(
-                            f"[cyan]🔑 Tentando:[/cyan] [white]{word:<30}[/white]  "
-                            f"[green]{count:>10,}[/green] tentativas  "
-                            f"[yellow]{speed:>8,}/s[/yellow]  "
-                            f"[blue]{pct:5.1f}%[/blue]"
-                        )
-                        live.update(status_line)
-                        last_report = now
+                    if now - last_update >= 0.5 and total_lines > 0:
+                        speed = int(count / (now - start_time))
+                        progress.update(task, speed=f"{speed:,}")
+                        last_update = now
         except KeyboardInterrupt:
             console.print("\n[bold yellow]⚡ Interrompido pelo usuário.[/bold yellow]")
 
@@ -345,8 +379,22 @@ class WordlistAttack:
                 border_style="red",
                 title="Resultado",
             )
+        self._last_stats = {
+            "command": "wordlist",
+            "found": found is not None,
+            "password": found,
+            "attempts": attempts,
+            "elapsed_seconds": elapsed,
+            "hashes_per_second": int(attempts / elapsed) if elapsed > 0 else 0,
+            "hash_type": self.hash_type,
+            "workers": self.num_workers,
+        }
         console.print(panel)
         logger.info(
             "Resultado wordlist: %s | workers=%d | tentativas=%d | tempo=%.3fs",
             found or "NÃO ENCONTRADA", self.num_workers, attempts, elapsed,
         )
+
+    def get_stats(self) -> dict:
+        """Retorna estatísticas da última execução (para --stats-json)."""
+        return getattr(self, "_last_stats", {})

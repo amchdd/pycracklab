@@ -24,7 +24,7 @@
 | Brute force e complexidade exponencial | `cracker/brute.py` |
 | Multiprocessing para contornar o GIL | `cracker/brute.py` → `brute_multiprocess()` |
 | Wordlist com chunking + Pool paralelo | `cracker/wordlist.py` → `wordlist_multiprocess()` |
-| Diferença entre MD5, SHA1 e bcrypt | `utils/benchmark.py` + `cracker/hash_cracker.py` |
+| Diferença entre MD5, SHA1, bcrypt e Argon2 | `utils/benchmark.py` + `cracker/hash_cracker.py` |
 | Por que bcrypt é propositalmente lento | `utils/benchmark.py` (seção educacional) |
 | Detecção automática de tipo de hash | `utils/hashing.py` |
 | CLI profissional com argparse + rich | `main.py` |
@@ -44,7 +44,7 @@ pycracklab/
 │   └── hash_cracker.py        # Hash cracker com detecção automática
 ├── utils/
 │   ├── hashing.py              # Funções de hash + detecção de tipo
-│   └── benchmark.py            # Benchmark MD5 vs SHA1 vs bcrypt
+│   └── benchmark.py            # Benchmark MD5 vs SHA1 vs bcrypt vs Argon2
 ├── wordlists/
 │   └── common.txt              # Wordlist pequena para testes
 ├── tests/
@@ -56,6 +56,7 @@ pycracklab/
 ├── Dockerfile                  # Multi-stage build
 ├── .dockerignore
 ├── .gitignore
+├── CHANGELOG.md                # Histórico de mudanças (Keep a Changelog)
 └── README.md
 ```
 
@@ -176,6 +177,49 @@ python main.py benchmark --password "test123" --iterations 500000
 ```bash
 python main.py --log brute --target hello --charset lowercase --max-len 5
 python main.py --log --log-file debug.log wordlist --hash <hash> --wordlist wordlists/common.txt
+```
+
+### 6. Exportar estatísticas em JSON
+
+```bash
+python main.py brute --target abc --max-len 3 --stats-json stats.json
+python main.py wordlist --hash 5f4dcc3b5aa765d61d8327deb882cf99 --wordlist wordlists/common.txt --stats-json stats.json
+python main.py benchmark --password "test123" --stats-json stats.json
+```
+
+---
+
+## 📺 Exemplo de saída
+
+### Benchmark
+
+```text
+╭─ ⚡ Benchmark ─────────────────────────────────────────────────╮
+│ Benchmark de Hashing                                            │
+│ Senha de teste: test123                                         │
+│ Iterações MD5/SHA1: 100,000 | bcrypt: 50 | Argon2id: 30         │
+╰────────────────────────────────────────────────────────────────╯
+
+╭─ 📊 Resultados do Benchmark ───────────────────────────────────╮
+│ Algoritmo      │ Iterações │ Tempo total │ Hashes/seg │ ...    │
+│ MD5            │   100,000 │      0.0823s │  1,215,306 │ ...   │
+│ SHA1           │   100,000 │      0.1121s │    892,061 │ ...   │
+│ bcrypt (cost=12)│        50 │      1.2345s │         40 │ ...   │
+│ Argon2id       │        30 │      2.1000s │         14 │ ...   │
+╰────────────────────────────────────────────────────────────────╯
+```
+
+### Wordlist (hash encontrado)
+
+```text
+╭─ Resultado ────────────────────────────────────────────────────╮
+│ ✅ HASH QUEBRADO!                                               │
+│   Hash:       5f4dcc3b5aa765d61d8327deb882cf99                   │
+│   Senha:      password                                          │
+│   Tentativas: 12                                                │
+│   Tempo:      0.002s                                             │
+│   Velocidade: 6,000 hashes/s                                    │
+╰────────────────────────────────────────────────────────────────╯
 ```
 
 ---

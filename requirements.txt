@@ -14,6 +14,7 @@ rich==13.9.4
 
 # ── Hashing seguro de senhas ─────────────────
 bcrypt==4.2.1
+argon2-cffi==25.1.0
 
 # ── Testes ───────────────────────────────────
 pytest==8.3.4

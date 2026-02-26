@@ -5,9 +5,13 @@ PyCrackLab - Educational Password Cracking Tool
 Uso exclusivamente educacional. Nunca use em sistemas sem autorização.
 """
 
+__version__ = "1.1.0"
+
 import argparse
+import json
 import sys
 import logging
+from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
@@ -33,7 +37,7 @@ def show_banner() -> None:
     banner.append("  ██╔═══╝   ╚██╔╝  ██║     ██╔══██╗██╔══██║██║     ██╔═██╗ \n", style="bold yellow")
     banner.append("  ██║        ██║   ╚██████╗██║  ██║██║  ██║╚██████╗██║  ██╗\n", style="bold green")
     banner.append("  ╚═╝        ╚═╝    ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝\n", style="bold green")
-    banner.append("              LAB  —  Educational Password Cracker v1.1\n", style="dim")
+    banner.append(f"              LAB  —  Educational Password Cracker v{__version__}\n", style="dim")
 
     console.print(Panel(banner, border_style="bold blue"))
 
@@ -79,8 +83,10 @@ Exemplos de uso:
         """,
     )
 
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--log", action="store_true", help="Habilita logging detalhado")
     parser.add_argument("--log-file", default="pycracklab.log", help="Arquivo de log")
+    parser.add_argument("--stats-json", metavar="FILE", default=None, help="Grava estatísticas em JSON ao final da execução")
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -110,7 +116,7 @@ Exemplos de uso:
     wl_parser = subparsers.add_parser("wordlist", help="Ataque por wordlist")
     wl_parser.add_argument("--hash", required=True, dest="hash_value", help="Hash alvo")
     wl_parser.add_argument("--wordlist", required=True, help="Caminho para wordlist")
-    wl_parser.add_argument("--hash-type", choices=["md5", "sha1", "bcrypt", "auto"], default="auto")
+    wl_parser.add_argument("--hash-type", choices=["md5", "sha1", "bcrypt", "argon2", "auto"], default="auto")
     wl_parser.add_argument(
         "--workers",
         type=int,
@@ -157,6 +163,17 @@ def setup_logging(enabled: bool, log_file: str) -> None:
 
 
 # ─────────────────────────────────────────────
+# Export de estatísticas
+# ─────────────────────────────────────────────
+
+def _write_stats_json(stats_path: str, stats: dict) -> None:
+    """Grava dicionário de estatísticas em JSON."""
+    path = Path(stats_path)
+    path.write_text(json.dumps(stats, indent=2, ensure_ascii=False), encoding="utf-8")
+    console.print(f"[dim]Estatísticas gravadas em: {path}[/dim]")
+
+
+# ─────────────────────────────────────────────
 # Dispatch de comandos
 # ─────────────────────────────────────────────
 
@@ -171,6 +188,8 @@ def run_brute(args: argparse.Namespace) -> None:
         mode=args.mode,
     )
     attack.run()
+    if getattr(args, "stats_json", None):
+        _write_stats_json(args.stats_json, attack.get_stats())
 
 
 def run_wordlist(args: argparse.Namespace) -> None:
@@ -182,6 +201,8 @@ def run_wordlist(args: argparse.Namespace) -> None:
         chunk_size=args.chunk_size,
     )
     attack.run()
+    if getattr(args, "stats_json", None):
+        _write_stats_json(args.stats_json, attack.get_stats())
 
 
 def run_hash(args: argparse.Namespace) -> None:
@@ -190,11 +211,15 @@ def run_hash(args: argparse.Namespace) -> None:
         wordlist_path=args.wordlist,
     )
     cracker.run()
+    if getattr(args, "stats_json", None):
+        _write_stats_json(args.stats_json, cracker.get_stats())
 
 
 def run_benchmark(args: argparse.Namespace) -> None:
     bench = Benchmark(password=args.password, iterations=args.iterations)
     bench.run()
+    if getattr(args, "stats_json", None):
+        _write_stats_json(args.stats_json, bench.get_stats())
 
 
 # ─────────────────────────────────────────────

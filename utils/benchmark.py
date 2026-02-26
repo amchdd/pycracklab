@@ -36,6 +36,7 @@ import logging
 import time
 
 import bcrypt
+from argon2 import PasswordHasher
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -74,8 +75,9 @@ class Benchmark:
     def __init__(self, password: str = "benchmark_test", iterations: int = 100_000) -> None:
         self.password = password
         self.iterations = iterations
-        # bcrypt é MUITO mais lento — limitamos para não travar a demo
+        # bcrypt e Argon2 são MUITO mais lentos — limitamos para não travar a demo
         self.bcrypt_iterations = min(iterations, 50)
+        self.argon2_iterations = min(iterations, 30)
 
     def _benchmark_md5(self) -> BenchmarkResult:
         """Mede velocidade do MD5."""
@@ -123,6 +125,22 @@ class Benchmark:
 
         return BenchmarkResult("bcrypt (cost=12)", self.bcrypt_iterations, elapsed, hps, crack_estimate)
 
+    def _benchmark_argon2(self) -> BenchmarkResult:
+        """Mede velocidade do Argon2id (limitado por ser lento e memory-hard)."""
+        ph = PasswordHasher(time_cost=2, memory_cost=65536, parallelism=1)
+        pw_bytes = self.password.encode("utf-8")
+
+        start = time.perf_counter()
+        for _ in range(self.argon2_iterations):
+            ph.hash(pw_bytes)
+        elapsed = time.perf_counter() - start
+
+        hps = self.argon2_iterations / elapsed
+        seconds_to_crack = self._SEARCH_SPACE_8CHARS / hps
+        crack_estimate = self._format_time(seconds_to_crack)
+
+        return BenchmarkResult("Argon2id", self.argon2_iterations, elapsed, hps, crack_estimate)
+
     @staticmethod
     def _format_time(seconds: float) -> str:
         """Formata segundos em unidade legível."""
@@ -160,7 +178,7 @@ class Benchmark:
             f"[bold]Benchmark de Hashing[/bold]\n"
             f"Senha de teste: [cyan]{self.password}[/cyan]\n"
             f"Iterações MD5/SHA1: [yellow]{self.iterations:,}[/yellow]\n"
-            f"Iterações bcrypt: [yellow]{self.bcrypt_iterations}[/yellow] (limitado por ser lento)",
+            f"Iterações bcrypt: [yellow]{self.bcrypt_iterations}[/yellow] | Argon2id: [yellow]{self.argon2_iterations}[/yellow] (limitados por serem lentos)",
             border_style="blue", title="⚡ Benchmark"
         ))
         console.print()
@@ -182,8 +200,26 @@ class Benchmark:
             results.append(self._benchmark_bcrypt())
         console.print("[green]✓[/green] bcrypt concluído")
 
+        with console.status("[bold yellow]Executando Argon2id...", spinner="dots"):
+            results.append(self._benchmark_argon2())
+        console.print("[green]✓[/green] Argon2id concluído")
+
         console.print()
         self._show_report(results)
+        self._last_stats = {
+            "command": "benchmark",
+            "password": self.password,
+            "results": [
+                {
+                    "algorithm": r.algorithm,
+                    "iterations": r.iterations,
+                    "elapsed_seconds": r.elapsed_seconds,
+                    "hashes_per_second": r.hashes_per_second,
+                    "time_to_crack_8char": r.time_to_crack_8char,
+                }
+                for r in results
+            ],
+        }
         return results
 
     def _show_report(self, results: list[BenchmarkResult]) -> None:
@@ -197,8 +233,8 @@ class Benchmark:
         table.add_column("Tempo p/ quebrar 8 chars*", style="red", justify="right")
         table.add_column("Segurança p/ senhas", style="bold", justify="center")
 
-        security_colors = {"MD5": "red", "SHA1": "red", "bcrypt (cost=12)": "green"}
-        security_labels = {"MD5": "❌ NÃO USE", "SHA1": "❌ NÃO USE", "bcrypt (cost=12)": "✅ RECOMENDADO"}
+        security_colors = {"MD5": "red", "SHA1": "red", "bcrypt (cost=12)": "green", "Argon2id": "green"}
+        security_labels = {"MD5": "❌ NÃO USE", "SHA1": "❌ NÃO USE", "bcrypt (cost=12)": "✅ RECOMENDADO", "Argon2id": "✅ RECOMENDADO"}
 
         for r in results:
             color = security_colors.get(r.algorithm, "white")
@@ -225,12 +261,16 @@ class Benchmark:
                 f"[bold]Análise de Segurança[/bold]\n\n"
                 f"• MD5 é [bold red]{ratio:,.0f}x mais rápido[/bold red] que bcrypt neste hardware.\n"
                 f"• Isso significa que um atacante testaria [bold red]{ratio:,.0f}x mais senhas[/bold red] por segundo com MD5.\n"
-                f"• [green]bcrypt[/green] torna ataques de força bruta [bold]praticamente inviáveis[/bold] para senhas fortes.\n\n"
+                f"• [green]bcrypt[/green] e [green]Argon2id[/green] tornam ataques de força bruta [bold]praticamente inviáveis[/bold] para senhas fortes.\n\n"
                 f"[dim]* Estimativa para charset lowercase+digits (36 chars), senha de 8 caracteres.[/dim]\n"
                 f"[dim]  GPU pode ser 100-1000x mais rápida que CPU para MD5/SHA1.[/dim]\n"
-                f"[dim]  Recomendação atual: bcrypt (cost≥12), Argon2id, ou scrypt.[/dim]",
+                f"[dim]  Recomendação atual: Argon2id (PHC), bcrypt (cost≥12), ou scrypt.[/dim]",
                 border_style="green",
                 title="🔐 Conclusão",
             ))
 
         logger.info("Benchmark concluído: %d algoritmos testados", len(results))
+
+    def get_stats(self) -> dict:
+        """Retorna estatísticas da última execução (para --stats-json)."""
+        return getattr(self, "_last_stats", {})

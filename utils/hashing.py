@@ -40,7 +40,9 @@ def hash_sha512(text: str) -> str:
 # ─────────────────────────────────────────────
 
 _DETECTION_RULES: list[tuple[str, re.Pattern[str]]] = [
-    # bcrypt primeiro (prefixo distinto)
+    # Argon2 (PHC: $argon2id$v=19$m=...,t=...,p=...$salt$hash)
+    ("argon2", re.compile(r"^\$argon2(id|i|d)\$v=\d+\$m=\d+,t=\d+,p=\d+\$.+\$.+$")),
+    # bcrypt (prefixo distinto)
     ("bcrypt", re.compile(r"^\$2[aby]\$\d{2}\$.{53}$")),
     # Comprimento exato para os outros
     ("md5",    re.compile(r"^[a-fA-F0-9]{32}$")),
@@ -80,5 +82,9 @@ def generate_hash(text: str, algorithm: str) -> str:
         import bcrypt as _bcrypt
         salt = _bcrypt.gensalt(rounds=12)
         return _bcrypt.hashpw(text.encode("utf-8"), salt).decode("utf-8")
+    elif algorithm == "argon2":
+        from argon2 import PasswordHasher
+        ph = PasswordHasher(time_cost=2, memory_cost=65536, parallelism=1)
+        return ph.hash(text)
     else:
         raise ValueError(f"Algoritmo não suportado: {algorithm}")

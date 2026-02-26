@@ -94,6 +94,19 @@ class TestHashing:
         assert result.startswith("$2b$")
         assert bcrypt.checkpw(b"test", result.encode())
 
+    def test_detect_hash_type_argon2(self):
+        """Argon2 (PHC) deve ser detectado pelo prefixo $argon2id$."""
+        h = generate_hash("test", "argon2")
+        assert h.startswith("$argon2")
+        assert detect_hash_type(h) == "argon2"
+
+    def test_generate_hash_argon2(self):
+        from argon2 import PasswordHasher
+        result = generate_hash("test", "argon2")
+        assert result.startswith("$argon2")
+        ph = PasswordHasher()
+        ph.verify(result, b"test")
+
     def test_generate_hash_unsupported(self):
         with pytest.raises(ValueError, match="não suportado"):
             generate_hash("test", "sha9999")

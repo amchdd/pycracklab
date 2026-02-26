@@ -31,7 +31,7 @@ import os
 import string
 import threading
 import time
-from typing import Generator, Optional
+from typing import Callable, Generator, Optional
 
 from rich.console import Console
 from rich.panel import Panel
@@ -141,6 +141,8 @@ def brute_multiprocess(
     min_len: int,
     max_len: int,
     num_workers: Optional[int] = None,
+    total_combinations: Optional[int] = None,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> tuple[Optional[str], int, float]:
     """
     Brute force usando multiprocessing real (contorna o GIL).
@@ -148,24 +150,23 @@ def brute_multiprocess(
     Divide o espaço de busca por prefixos do charset — cada processo
     fica responsável por uma fatia ortogonal do espaço total.
 
+    progress_callback(current, total) é chamado periodicamente para barra de progresso.
+
     Returns:
         (resultado, tentativas_totais, tempo_segundos)
     """
     if num_workers is None:
         num_workers = os.cpu_count() or 2
+    total = total_combinations or estimate_combinations(charset, min_len, max_len)
 
     # Prefixos = primeiros caracteres do charset, distribuídos entre workers
-    # Para max_len >= 2: usa o charset completo como prefixos de 1 char
-    # Para max_len == 1: divide o charset diretamente
     if max_len == 1:
         prefixes = list(charset)
     else:
         prefixes = list(charset)
 
-    # Se tivermos mais workers que prefixos, limitamos
     num_workers = min(num_workers, len(prefixes))
 
-    # Distribui prefixos entre workers
     prefix_chunks: list[list[str]] = [[] for _ in range(num_workers)]
     for i, p in enumerate(prefixes):
         prefix_chunks[i % num_workers].append(p)
@@ -177,8 +178,8 @@ def brute_multiprocess(
 
     processes: list[multiprocessing.Process] = []
     start_time = time.perf_counter()
+    last_cb_time = [start_time]  # list para permitir assign em closure
 
-    # Lança um processo por chunk de prefixos
     for chunk in prefix_chunks:
         for prefix in chunk:
             p = ctx.Process(
@@ -190,7 +191,6 @@ def brute_multiprocess(
             p.start()
             processes.append(p)
 
-    # Aguarda resultado ou término de todos os processos
     result: Optional[str] = None
     while any(p.is_alive() for p in processes):
         try:
@@ -199,6 +199,13 @@ def brute_multiprocess(
             break
         except Exception:
             pass
+        now = time.perf_counter()
+        if progress_callback and (now - last_cb_time[0]) >= 0.2:
+            progress_callback(counter.value, total)
+            last_cb_time[0] = now
+
+    if progress_callback:
+        progress_callback(counter.value, total)
 
     for p in processes:
         p.join(timeout=2)
@@ -331,22 +338,57 @@ class BruteForceAttack:
             return self._run_with_progress(total, multithreaded=False)
 
     def _run_multiprocess(self, total: int) -> Optional[str]:
-        """Delega para brute_multiprocess e exibe resultado."""
+        """Delega para brute_multiprocess com barra de progresso e exibe resultado."""
         console.print(
             f"[bold green]🚀 Lançando {self.num_workers} processos paralelos...[/bold green]\n"
         )
 
-        with console.status("[bold green]Processando em paralelo...[/bold green]", spinner="dots"):
+        progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TextColumn("[cyan]{task.fields[speed]}/s"),
+            TimeElapsedColumn(),
+            console=console,
+        )
+
+        def on_progress(current: int, total_combos: int) -> None:
+            elapsed = time.perf_counter() - getattr(on_progress, "_start", 0)
+            speed = int(current / elapsed) if elapsed > 0 else 0
+            progress.update(task_id, completed=current, speed=f"{speed:,}")
+
+        on_progress._start = time.perf_counter()
+
+        with progress:
+            task_id = progress.add_task("Testando...", total=total, speed="0")
             result, attempts, elapsed = brute_multiprocess(
                 target=self.target,
                 charset=self.charset,
                 min_len=self.min_len,
                 max_len=self.max_len,
                 num_workers=self.num_workers,
+                total_combinations=total,
+                progress_callback=lambda c, t: on_progress(c, t),
             )
 
+        self._last_stats = {
+            "command": "brute",
+            "found": result is not None,
+            "password": result,
+            "attempts": attempts,
+            "elapsed_seconds": elapsed,
+            "hashes_per_second": int(attempts / elapsed) if elapsed > 0 else 0,
+            "target": self.target,
+            "mode": self.mode,
+            "workers": self.num_workers,
+        }
         self._show_result(result, attempts, elapsed)
         return result
+
+    def get_stats(self) -> dict:
+        """Retorna estatísticas da última execução (para --stats-json)."""
+        return getattr(self, "_last_stats", {})
 
     def _run_with_progress(self, total: int, multithreaded: bool) -> Optional[str]:
         """Executa single-thread ou multi-thread com barra de progresso."""
@@ -386,6 +428,17 @@ class BruteForceAttack:
                 count = total
 
         elapsed = time.perf_counter() - start_time
+        self._last_stats = {
+            "command": "brute",
+            "found": result is not None,
+            "password": result,
+            "attempts": count,
+            "elapsed_seconds": elapsed,
+            "hashes_per_second": int(count / elapsed) if elapsed > 0 else 0,
+            "target": self.target,
+            "mode": self.mode,
+            "workers": self.num_workers,
+        }
         self._show_result(result, count, elapsed)
         return result
 
